@@ -214,6 +214,7 @@ const LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAADnCAYAA
         <div class="sBox"><b id="sCollected" style="color:var(--green)">–</b><span>Collected ₹</span></div>
       </div>
       <div class="dueStrip hidden" id="dueStrip"></div>
+      <input id="searchBox" placeholder="🔍 Search customer name, phone or invoice no." oninput="renderOrders()" style="margin-bottom:10px">
       <div class="filters">
         <button class="on" data-f="OPEN" onclick="setFilter(this)">Open</button>
         <button data-f="TODAY" onclick="setFilter(this)">Due today</button>
@@ -221,6 +222,7 @@ const LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAADnCAYAA
         <button data-f="ALL" onclick="setFilter(this)">All</button>
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+        <span style="font-size:12.5px;color:var(--muted);white-space:nowrap">Delivery date:</span>
         <input type="date" id="dateFilter" style="flex:1" onchange="renderOrders()">
         <button onclick="$('dateFilter').value='';renderOrders()" style="padding:10px 14px;border:1.5px solid var(--line);background:#fff;border-radius:10px;font-family:inherit;font-size:13px">Clear</button>
       </div>
@@ -536,7 +538,11 @@ function renderOrders(){
   if(filter==="TODAY") list=dueToday;
   if(filter==="UNPAID") list=orders.filter(o=>Number(o.Balance)>0);
   const df=$("dateFilter").value;
-  if(df) list=list.filter(o=>String(o.DeliveryDate).slice(0,10)===df || String(o.OrderDate).slice(0,10)===df);
+  if(df) list=list.filter(o=>String(o.DeliveryDate).slice(0,10)===df);
+  const q=$("searchBox").value.trim().toLowerCase();
+  if(q) list=list.filter(o=>String(o.CustomerName).toLowerCase().includes(q)
+      || String(o.CustomerPhone).includes(q)
+      || String(o.InvoiceNo).toLowerCase().includes(q));
   $("ordersList").innerHTML = list.length ? list.map(cardHTML).join("") :
     '<p style="text-align:center;color:var(--muted);padding:20px 0">No orders here.</p>';
 }
