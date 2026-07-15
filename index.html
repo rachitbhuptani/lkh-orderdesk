@@ -220,6 +220,10 @@ const LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAADnCAYAA
         <button data-f="UNPAID" onclick="setFilter(this)">Payment pending</button>
         <button data-f="ALL" onclick="setFilter(this)">All</button>
       </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+        <input type="date" id="dateFilter" style="flex:1" onchange="renderOrders()">
+        <button onclick="$('dateFilter').value='';renderOrders()" style="padding:10px 14px;border:1.5px solid var(--line);background:#fff;border-radius:10px;font-family:inherit;font-size:13px">Clear</button>
+      </div>
       <div id="ordersList"><p style="text-align:center;color:var(--muted)">Loading…</p></div>
       <button class="btn btn-ghost" onclick="loadOrders()">Refresh</button>
     </section>
@@ -237,7 +241,7 @@ const LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAADnCAYAA
     <h3>Record payment</h3>
     <p style="margin:0;color:var(--muted);font-size:13px" id="pmInfo"></p>
     <div class="row2">
-      <div><label>Amount (₹)</label><input id="pmAmt" type="number" inputmode="decimal" min="1"></div>
+      <div><label>Amount (₹)</label><input id="pmAmt" type="number" inputmode="decimal" min="1" oninput="capPay(this)"></div>
       <div><label>Date</label><input id="pmDate" type="date"></div>
     </div>
     <label>Mode</label>
@@ -382,78 +386,139 @@ function amountInWords(n){
 }
 function makePDF(invNo, p, c){
   const {jsPDF}=window.jspdf; const d=new jsPDF({unit:"mm",format:"a4"});
-  const W=210, M=14; let y=16;
-  if(LOGO_BASE64){ try{ d.addImage(LOGO_BASE64,"PNG",M,y-4,24,24); }catch(e){} }
-  d.setFont("helvetica","bold").setFontSize(17).setTextColor(30,107,78);
-  d.text(CO.name, W/2, y, {align:"center"}); y+=6;
-  d.setFont("helvetica","normal").setFontSize(9.5).setTextColor(60);
-  d.text(CO.addr1, W/2, y, {align:"center"}); y+=4.5;
-  d.text("GSTIN: "+CO.gstin+"   |   Email: "+CO.email, W/2, y, {align:"center"}); y+=7;
-  d.setDrawColor(232,162,0).setLineWidth(.8).line(M,y,W-M,y); y+=7;
+  const W=210, M=16; let y=18;
+  const GREEN=[30,107,78], GREY=[130,130,130], DARK=[40,40,40];
 
-  d.setFont("helvetica","bold").setFontSize(12).setTextColor(0);
-  d.text("TAX INVOICE", W/2, y, {align:"center"}); y+=8;
+  // ---- header: logo left, TAX INVOICE right ----
+  if(LOGO_BASE64){ try{ d.addImage(LOGO_BASE64,"PNG",M,y-6,30,29); }catch(e){} }
+  d.setFont("helvetica","normal").setFontSize(24).setTextColor(...GREEN);
+  d.text("TAX INVOICE", W-M, y+2, {align:"right"});
+  d.setFont("helvetica","bold").setFontSize(11).setTextColor(...DARK);
+  d.text("# "+invNo, W-M, y+9, {align:"right"});
+  d.setFontSize(9).setTextColor(...GREY);
+  d.text("Balance Due", W-M, y+18, {align:"right"});
+  d.setFont("helvetica","bold").setFontSize(12).setTextColor(...DARK);
+  d.text("Rs. "+Math.max(c.balance,0).toFixed(2), W-M, y+24, {align:"right"});
 
-  d.setFontSize(9.5);
-  d.text("Invoice No: "+invNo, M, y);
-  d.text("Invoice Date: "+fmtD(p.orderDate), W-M, y, {align:"right"}); y+=5;
-  d.setFont("helvetica","normal");
-  d.text("Delivery Date: "+fmtD(p.deliveryDate), W-M, y, {align:"right"}); y+=7;
-
-  // Bill To / Ship To (mirrored)
-  const half=(W-2*M)/2;
-  d.setFont("helvetica","bold").text("Bill To:", M, y); d.text("Ship To:", M+half, y); y+=5;
-  d.setFont("helvetica","normal");
-  const lines=[p.customerName, p.customerAddress||null, p.customerPhone?("Ph: "+p.customerPhone):null, p.customerGSTIN?("GSTIN: "+p.customerGSTIN):null].filter(Boolean);
-  lines.forEach(l=>{ d.text(l,M,y); d.text(l,M+half,y); y+=4.5; });
+  // ---- company block ----
+  y+=32;
+  d.setFont("helvetica","bold").setFontSize(10).setTextColor(...DARK);
+  d.text("Lijjat Khaman House", M, y); y+=4.6;
+  d.setFont("helvetica","normal").setFontSize(8.8);
+  ["Lijjat Khaman House, Near Passport Office, Opp. metro pillar no. 162",
+   "Vijay crossroad, Navrangpura",
+   "Ahmedabad Gujarat 380009",
+   "India",
+   "GSTIN "+CO.gstin,
+   CO.email].forEach(l=>{ d.text(l, M, y); y+=4.2; });
   y+=4;
 
-  // items table
-  const cols=[M, M+10, M+96, M+120, M+150, W-M];
-  d.setFillColor(30,107,78); d.rect(M, y-4.5, W-2*M, 7, "F");
-  d.setTextColor(255).setFont("helvetica","bold").setFontSize(9);
-  d.text("#",cols[0]+2,y); d.text("Item",cols[1]+2,y); d.text("Qty",cols[2]+2,y);
-  d.text("Rate",cols[3]+2,y); d.text("Amount",cols[5]-2,y,{align:"right"}); y+=6.5;
-  d.setTextColor(0).setFont("helvetica","normal");
+  // ---- Bill To (left) + invoice meta (right) ----
+  const metaY=y;
+  d.setFontSize(9).setTextColor(...GREY);
+  d.text("Bill To", M, y); y+=4.8;
+  d.setFont("helvetica","bold").setFontSize(9.5).setTextColor(...DARK);
+  const billLines=[p.customerName, p.customerAddress||null,
+    p.customerPhone?("Ph: "+p.customerPhone):null,
+    p.customerGSTIN?("GSTIN: "+p.customerGSTIN):null].filter(Boolean);
+  billLines.forEach(l=>{ d.splitTextToSize(l, 90).forEach(t=>{ d.text(t,M,y); y+=4.6; }); });
+
+  let my=metaY;
+  const meta=(k,v)=>{ d.setFont("helvetica","normal").setTextColor(...GREY).setFontSize(9); d.text(k, W-M-58, my);
+    d.setTextColor(...DARK); d.text(v, W-M, my, {align:"right"}); my+=5.4; };
+  meta("Invoice Date :", fmtSlash(p.orderDate));
+  meta("Terms :", "Due on Receipt");
+  meta("Due Date :", fmtSlash(p.deliveryDate));
+  y=Math.max(y,my)+4;
+
+  d.setFont("helvetica","normal").setFontSize(9).setTextColor(...DARK);
+  d.text("Place Of Supply: Gujarat (24)", M, y); y+=6;
+
+  // ---- items table ----
+  // columns: # | Item & Description | HSN/SAC | Qty | Rate | CGST | SGST | Amount
+  const cx={n:M+2, item:M+10, hsn:M+78, qty:M+102, rate:M+120, cgst:M+142, sgst:M+160, amt:W-M-2};
+  d.setFillColor(...GREEN); d.rect(M, y, W-2*M, 8, "F");
+  d.setFont("helvetica","bold").setFontSize(8.6).setTextColor(255);
+  const hy=y+5.4;
+  d.text("#",cx.n,hy); d.text("Item & Description",cx.item,hy); d.text("HSN/SAC",cx.hsn,hy);
+  d.text("Qty",cx.qty+8,hy,{align:"right"}); d.text("Rate",cx.rate+12,hy,{align:"right"});
+  d.text("CGST",cx.cgst+8,hy,{align:"right"}); d.text("SGST",cx.sgst+8,hy,{align:"right"});
+  d.text("Amount",cx.amt,hy,{align:"right"});
+  y+=12;
+
+  let subTotal=0, cgstT=0, sgstT=0;
+  d.setTextColor(...DARK);
   p.items.forEach((it,i)=>{
-    d.text(String(i+1),cols[0]+2,y);
-    d.text(it.name.slice(0,48),cols[1]+2,y);
-    d.text(String(it.qty),cols[2]+2,y);
-    d.text(it.rate.toFixed(2),cols[3]+2,y);
-    d.text(it.amount.toFixed(2),cols[5]-2,y,{align:"right"});
-    y+=6;
-    if(y>250){ d.addPage(); y=20; }
+    const rateEx=it.rate/1.05, lineTax=it.qty*rateEx, half=lineTax*0.025;
+    subTotal+=lineTax; cgstT+=half; sgstT+=half;
+    d.setFont("helvetica","normal").setFontSize(9);
+    d.text(String(i+1),cx.n,y);
+    d.text(it.name.slice(0,34),cx.item,y);
+    d.text(it.hsn||"21069099",cx.hsn,y);
+    d.text(it.qty.toFixed(2),cx.qty+8,y,{align:"right"});
+    d.text(rateEx.toFixed(3),cx.rate+12,y,{align:"right"});
+    d.text(half.toFixed(2),cx.cgst+8,y,{align:"right"});
+    d.text(half.toFixed(2),cx.sgst+8,y,{align:"right"});
+    d.text(lineTax.toFixed(2),cx.amt,y,{align:"right"});
+    d.setFontSize(7.2).setTextColor(...GREY);
+    d.text("2.5%",cx.cgst+8,y+3.4,{align:"right"});
+    d.text("2.5%",cx.sgst+8,y+3.4,{align:"right"});
+    d.setTextColor(...DARK);
+    y+=9.5;
+    d.setDrawColor(228).setLineWidth(.2).line(M,y-3.2,W-M,y-3.2);
+    if(y>240){ d.addPage(); y=20; }
   });
-  d.setDrawColor(200).line(M,y-2,W-M,y-2); y+=3;
+  y+=4;
 
-  // totals
-  const tX=W-M-70, vX=W-M;
-  const tr=(k,v,bold)=>{ if(bold)d.setFont("helvetica","bold"); d.text(k,tX,y); d.text(v,vX,y,{align:"right"}); if(bold)d.setFont("helvetica","normal"); y+=5.5; };
-  tr("Taxable Value", c.taxable.toFixed(2));
-  tr("CGST @ 2.5%", (c.tax/2).toFixed(2)); tr("SGST @ 2.5%", (c.tax/2).toFixed(2));
-  tr("Round Off", (c.roundOff>=0?"+":"")+c.roundOff.toFixed(2));
-  tr("Grand Total", "Rs. "+c.grand.toFixed(2), true);
-  tr("Advance Received", "Rs. "+Number(p.advance||0).toFixed(2));
-  d.setTextColor(192,57,43);
-  tr("Balance Due", "Rs. "+Math.max(c.balance,0).toFixed(2), true);
-  d.setTextColor(0); y+=2;
-  d.setFontSize(8.5).text("Amount in words: Rupees "+amountInWords(c.grand)+" Only", M, y); y+=10;
+  // ---- totals block (right) ----
+  const total=subTotal+cgstT+sgstT;
+  const grand=c.grand, roundOff=+(grand-total).toFixed(2);
+  const kX=W-M-70, vX=W-M-2;
+  const trow=(k,v,bold,big)=>{
+    d.setFont("helvetica",bold?"bold":"normal").setFontSize(big?11:9.5);
+    d.setTextColor(...(bold?DARK:GREY)); d.text(k,kX,y);
+    d.setTextColor(...DARK); d.text(v,vX,y,{align:"right"}); y+=big?8:6.5;
+  };
+  trow("Sub Total", subTotal.toFixed(2));
+  trow("CGST2.5 (2.5%)", cgstT.toFixed(2));
+  trow("SGST2.5 (2.5%)", sgstT.toFixed(2));
+  trow("Round Off", roundOff.toFixed(2));
+  d.setDrawColor(200).line(kX-2,y-4,W-M,y-4); y+=1;
+  trow("Total", "Rs. "+grand.toFixed(2), true, true);
+  if(Number(p.advance||0)>0) trow("Amount Paid", "Rs. "+Number(p.advance).toFixed(2));
+  d.setFillColor(243,243,243); d.rect(kX-4,y-4.5,(W-M)-(kX-4),8,"F");
+  trow("Balance Due", "Rs. "+Math.max(c.balance,0).toFixed(2), true);
+  y+=4;
 
-  d.setFont("helvetica","italic").setFontSize(8.5).setTextColor(110);
-  d.text("This is a computer-generated invoice and does not require a signature.", W/2, 285, {align:"center"});
+  // ---- amount in words ----
+  d.setFont("helvetica","normal").setFontSize(9).setTextColor(...GREY);
+  d.text("Total In Words:", M, y);
+  d.setFont("helvetica","bolditalic").setTextColor(...DARK);
+  d.splitTextToSize("Indian Rupee "+amountInWords(grand)+" Only", 105).forEach(t=>{ d.text(t, M+70, y); y+=5; });
+  y+=8;
+
+  // ---- notes + footer ----
+  d.setFont("helvetica","normal").setFontSize(9).setTextColor(...GREY);
+  d.text("Notes", M, y); y+=4.6;
+  d.setTextColor(...DARK); d.text("Thanks for your business.", M, y);
+  d.setFont("helvetica","italic").setFontSize(8.5).setTextColor(120);
+  d.text("This is a computer-generated invoice and does not require a signature.", M, 285);
   d.save(invNo+".pdf");
 }
+function fmtSlash(s){ const d=new Date(s); return isNaN(d)?s:String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear(); }
 
 /* ---------------- dashboard ---------------- */
+let loading=false;
 async function loadOrders(){
+  if(loading) return; loading=true;
   try{
     const res=await fetch(SCRIPT_URL+"?action=list");
     const data=await res.json();
     orders=(data.orders||[]).reverse();
     renderOrders();
   }catch(e){
-    $("ordersList").innerHTML='<p class="err">Could not load orders. Check internet / SCRIPT_URL.</p>';
-  }
+    if(!orders.length) $("ordersList").innerHTML='<p class="err">Could not load orders. Check internet / SCRIPT_URL.</p>';
+  }finally{ loading=false; }
 }
 function setFilter(btn){ filter=btn.dataset.f; document.querySelectorAll(".filters button").forEach(b=>b.classList.toggle("on",b===btn)); renderOrders(); }
 function renderOrders(){
@@ -470,6 +535,8 @@ function renderOrders(){
   if(filter==="OPEN") list=open;
   if(filter==="TODAY") list=dueToday;
   if(filter==="UNPAID") list=orders.filter(o=>Number(o.Balance)>0);
+  const df=$("dateFilter").value;
+  if(df) list=list.filter(o=>String(o.DeliveryDate).slice(0,10)===df || String(o.OrderDate).slice(0,10)===df);
   $("ordersList").innerHTML = list.length ? list.map(cardHTML).join("") :
     '<p style="text-align:center;color:var(--muted);padding:20px 0">No orders here.</p>';
 }
@@ -500,10 +567,13 @@ function openPay(inv){
   $("pmAmt").value=o.Balance; $("pmDate").value=today();
   $("payModal").classList.remove("hidden");
 }
+function capPay(inp){ const o=orders.find(x=>x.InvoiceNo===payingInv); if(o && Number(inp.value)>Number(o.Balance)) inp.value=o.Balance; }
 function closePay(){ $("payModal").classList.add("hidden"); }
 async function submitPayment(){
   const amt=Number($("pmAmt").value);
   if(!amt||amt<=0) return toast("Enter a valid amount");
+  const o=orders.find(x=>x.InvoiceNo===payingInv);
+  if(o && amt>Number(o.Balance)+0.01) return toast("Amount cannot exceed pending balance of "+inr(o.Balance));
   try{
     const res=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},
       body:JSON.stringify({action:"addPayment",invoiceNo:payingInv,amount:amt,date:$("pmDate").value,mode:$("pmMode").value})});
@@ -536,7 +606,7 @@ function showTab(t){
   $("tabOrders").classList.toggle("hidden",t!=="Orders");
   $("navNew").classList.toggle("active",t==="New");
   $("navOrders").classList.toggle("active",t==="Orders");
-  if(t==="Orders") loadOrders();
+  if(t==="Orders"){ if(orders.length) renderOrders(); loadOrders(); }
 }
 </script>
 </body>
