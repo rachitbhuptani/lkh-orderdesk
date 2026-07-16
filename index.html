@@ -106,7 +106,7 @@
 /* =================================================================
    CONFIGURATION — edit these three lines
    ================================================================= */
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxFbK_u-8aONC7LJW6PHFaqHFNVL1xuHGL5FrTSAyVRaMmRGQQSGwTpfdQbEY6BIT74/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyxfmyIsUXcosxUyMQ3xa8HDeNe-buZODwHJyBLuJ2-ckPiVZrSqjLRva0dqz2GFeOd/exec";
 const USERS = [
   {u:"lijjat",  p:"khaman@2026", role:"cashier"},
   {u:"Lijjat1", p:"Lijjat@2412", role:"owner"},
@@ -465,7 +465,7 @@ async function saveOrder(mode){
     let data;
     try{ data=JSON.parse(raw); }
     catch(_){ throw new Error("The Google Script did not respond correctly. Open SETUP-GUIDE Part 1: redeploy the Web App with access = Anyone, and paste the NEW /exec URL into index.html"); }
-    if(!data.ok) throw new Error(data.error||"Server error");
+    if(!data.ok) throw new Error(data.error==="Unknown action"?"Your Google Script is an OLD version. Paste the latest Code.gs in Apps Script, then Deploy > Manage deployments > edit > New version.":(data.error||"Server error"));
     const invNo = data.invoiceNo || editingInv;
     lastSaved={invoiceNo:invNo, payload, calc:c};
     $("savedInv").textContent=invNo+(editingInv?" updated for ":" saved for ")+payload.customerName;
@@ -552,13 +552,13 @@ function makePDF(invNo, p, c, out){
 
   // ---- items table ----
   // columns: # | Item & Description | HSN/SAC | Qty | Rate | CGST | SGST | Amount
-  const cx={n:M+2, item:M+10, hsn:M+78, qty:M+102, rate:M+120, cgst:M+142, sgst:M+160, amt:W-M-2};
+  const cx={n:M+2, item:M+10, hsn:M+72, qty:M+88, rate:M+104, cgst:M+124, sgst:M+142, amt:W-M-2};
   d.setFillColor(...GREEN); d.rect(M, y, W-2*M, 8, "F");
   d.setFont("helvetica","bold").setFontSize(8.6).setTextColor(255);
   const hy=y+5.4;
   d.text("#",cx.n,hy); d.text("Item & Description",cx.item,hy); d.text("HSN/SAC",cx.hsn,hy);
-  d.text("Qty",cx.qty+8,hy,{align:"right"}); d.text("Rate",cx.rate+12,hy,{align:"right"});
-  d.text("CGST",cx.cgst+8,hy,{align:"right"}); d.text("SGST",cx.sgst+8,hy,{align:"right"});
+  d.text("Qty",cx.qty+9,hy,{align:"right"}); d.text("Rate",cx.rate+13,hy,{align:"right"});
+  d.text("CGST",cx.cgst+9,hy,{align:"right"}); d.text("SGST",cx.sgst+9,hy,{align:"right"});
   d.text("Amount",cx.amt,hy,{align:"right"});
   y+=12;
 
@@ -569,16 +569,16 @@ function makePDF(invNo, p, c, out){
     subTotal+=lineTax;
     d.setFont("helvetica","normal").setFontSize(9);
     d.text(String(i+1),cx.n,y);
-    d.text(it.name.slice(0,34),cx.item,y);
+    d.text(it.name.slice(0,30),cx.item,y);
     d.text(it.hsn||"21069099",cx.hsn,y);
-    d.text(it.qty.toFixed(2),cx.qty+8,y,{align:"right"});
-    d.text(rateEx.toFixed(3),cx.rate+12,y,{align:"right"});
-    d.text(half.toFixed(2),cx.cgst+8,y,{align:"right"});
-    d.text(half.toFixed(2),cx.sgst+8,y,{align:"right"});
+    d.text(it.qty.toFixed(2),cx.qty+9,y,{align:"right"});
+    d.text(rateEx.toFixed(3),cx.rate+13,y,{align:"right"});
+    d.text(half.toFixed(2),cx.cgst+9,y,{align:"right"});
+    d.text(half.toFixed(2),cx.sgst+9,y,{align:"right"});
     d.text(lineTax.toFixed(2),cx.amt,y,{align:"right"});
     d.setFontSize(7.2).setTextColor(...GREY);
-    d.text("2.5%",cx.cgst+8,y+3.4,{align:"right"});
-    d.text("2.5%",cx.sgst+8,y+3.4,{align:"right"});
+    d.text("2.5%",cx.cgst+9,y+3.4,{align:"right"});
+    d.text("2.5%",cx.sgst+9,y+3.4,{align:"right"});
     d.setTextColor(...DARK);
     y+=9;
     d.setDrawColor(228).setLineWidth(.2).line(M,y-3.2,W-M,y-3.2);
@@ -762,7 +762,7 @@ async function wipeAll(){
     const res=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},
       body:JSON.stringify({action:"wipeAll", password:pw})});
     const data=await res.json();
-    if(!data.ok) throw new Error(data.error||"Failed");
+    if(!data.ok) throw new Error(data.error==="Unknown action"?"Google Script is an old version — redeploy the latest Code.gs (New version)":(data.error||"Failed"));
     orders=[]; renderOrders(); toast("All orders deleted");
   }catch(e){ toast("❌ "+e.message); }
 }
