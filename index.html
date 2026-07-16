@@ -176,6 +176,12 @@ const LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAADnCAYAA
           <div><label>Date of order</label><input type="date" id="orderDate"></div>
           <div><label>Delivery date *</label><input type="date" id="deliveryDate"></div>
         </div>
+        <label>Delivery time (optional)</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <select id="dtHour"><option value="">Hour</option>${""}</select>
+          <select id="dtMin"><option value="">Min</option></select>
+          <select id="dtAP"><option>AM</option><option selected>PM</option></select>
+        </div>
         <label>Customer name *</label>
         <input id="custName" placeholder="e.g. Rameshbhai Patel">
         <label>Customer number</label>
@@ -184,6 +190,8 @@ const LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAADnCAYAA
         <input id="custAddr" placeholder="e.g. 12, CG Road, Ahmedabad">
         <label>Customer GSTIN (leave blank if none)</label>
         <input id="custGSTIN" style="text-transform:uppercase" placeholder="e.g. 24XXXXXXXXXXXXX">
+        <label>Order note for kitchen (optional)</label>
+        <input id="orderNote" placeholder="e.g. Marriage function — deliver 30 min early">
       </div>
 
       <div class="card">
@@ -219,9 +227,15 @@ const LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAADnCAYAA
         <button class="btn btn-green" onclick="if(lastSaved)makePDF(lastSaved.invoiceNo,lastSaved.payload,lastSaved.calc)">⬇ Download invoice PDF</button>
         <div style="height:8px"></div>
         <button class="btn" style="background:#25D366;color:#fff" onclick="if(lastSaved)waShare(lastSaved.invoiceNo,lastSaved)">🟢 Share on WhatsApp</button>
+        <div style="height:8px"></div>
+        <button class="btn btn-ghost" onclick="if(lastSaved&&lastSaved.kot)printKOT(lastSaved.kot,'DUPLICATE')">🍳 Reprint KOT</button>
       </div>
       <div id="saveErr" class="err hidden"></div>
-      <button class="btn btn-primary" id="saveBtn" onclick="saveOrder()">Save order &amp; generate invoice</button>
+      <button class="btn btn-primary" id="saveBtn" onclick="saveOrder('save')">💾 Save Invoice</button>
+      <div style="height:8px"></div>
+      <button class="btn btn-green" id="saveKotBtn" onclick="saveOrder('kot')">🍳 Save &amp; Print KOT</button>
+      <div style="height:8px"></div>
+      <button class="btn btn-ghost" id="savePrintBtn" onclick="saveOrder('print')">🖨 Save &amp; Print Invoice</button>
     </section>
 
     <!-- ---- ORDERS DASHBOARD ---- -->
@@ -308,6 +322,25 @@ const today = () => new Date().toISOString().slice(0,10);
 const fmtD = s => { if(!s) return ""; const d=new Date(s); return isNaN(d)?s:d.toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}); };
 function toast(m){ const t=document.createElement("div"); t.className="toast"; t.textContent=m; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
 
+/* ---------------- delivery time (AM/PM) ---------------- */
+window.addEventListener("DOMContentLoaded",()=>{
+  for(let i=1;i<=12;i++) $("dtHour").insertAdjacentHTML("beforeend",`<option>${i}</option>`);
+  for(let m=0;m<60;m+=5) $("dtMin").insertAdjacentHTML("beforeend",`<option>${String(m).padStart(2,"0")}</option>`);
+});
+function getDeliveryTime(){
+  const hh=$("dtHour").value, mm=$("dtMin").value||"00", ap=$("dtAP").value;
+  if(!hh) return "";
+  let H=Number(hh)%12; if(ap==="PM") H+=12;
+  return String(H).padStart(2,"0")+":"+mm;
+}
+function setDeliveryTime(t){
+  if(!t){ $("dtHour").value=""; $("dtMin").value=""; $("dtAP").value="PM"; return; }
+  const [H,mm]=String(t).split(":").map(Number);
+  $("dtAP").value=H>=12?"PM":"AM";
+  $("dtHour").value=String(H%12||12);
+  $("dtMin").value=String(Math.floor((mm||0)/5)*5).padStart(2,"0");
+}
+
 /* ---------------- login ---------------- */
 window.addEventListener("DOMContentLoaded",()=>{ if(LOGO_BASE64) $("loginLogo").src=LOGO_BASE64; });
 let ROLE = "cashier";
@@ -328,14 +361,19 @@ if(sessionStorage.getItem("lkh_auth")) window.addEventListener("DOMContentLoaded
 
 /* ---------------- item rows ---------------- */
 function addItemRow(){
-  const div = document.createElement("div"); div.className="itemRow";
+  const wrap = document.createElement("div"); wrap.className="itemWrap"; wrap.style.marginBottom="10px";
+  const div = document.createElement("div"); div.className="itemRow"; div.style.marginBottom="4px";
   const opts = ITEMS.map(i=>`<option data-rate="${i.rate}">${i.name}</option>`).join("");
   div.innerHTML = `
     <select onchange="pickItem(this)"><option value="">— select item —</option><option value="__other">✏️ Type item name</option>${opts}</select>
     <input type="number" placeholder="Qty" min="0" step="0.25" inputmode="decimal" oninput="recalc()">
     <input type="number" placeholder="Rate ₹" min="0" inputmode="decimal" oninput="recalc()">
-    <button class="del" onclick="this.parentNode.remove();recalc()">✕</button>`;
-  $("itemRows").appendChild(div); recalc();
+    <button class="del" onclick="this.closest('.itemWrap').remove();recalc()">✕</button>`;
+  const note = document.createElement("input");
+  note.className="itemNote"; note.placeholder="Note for kitchen (optional) e.g. less sweet";
+  note.style.cssText="font-size:13px;padding:8px 11px;border-style:dashed";
+  wrap.appendChild(div); wrap.appendChild(note);
+  $("itemRows").appendChild(wrap); recalc();
 }
 function pickItem(sel){
   const row = sel.parentNode;
@@ -348,12 +386,14 @@ function pickItem(sel){
   recalc();
 }
 function readItems(){
-  const rows=[...document.querySelectorAll(".itemRow")], items=[];
-  rows.forEach(r=>{
+  const wraps=[...document.querySelectorAll(".itemWrap")], items=[];
+  wraps.forEach(w=>{
+    const r=w.querySelector(".itemRow");
     const nameEl=r.children[0];
     const name = nameEl.tagName==="SELECT" ? nameEl.value : nameEl.value.trim();
     const qty=Number(r.children[1].value), rate=Number(r.children[2].value);
-    if(name && name!=="__other" && qty>0 && rate>0) items.push({name, qty, rate, amount:+(qty*rate).toFixed(2)});
+    const note=w.querySelector(".itemNote").value.trim();
+    if(name && name!=="__other" && qty>0 && rate>0) items.push({name, qty, rate, amount:+(qty*rate).toFixed(2), note});
   });
   return items;
 }
@@ -397,7 +437,8 @@ function recalc(){
 }
 
 /* ---------------- save order ---------------- */
-async function saveOrder(){
+async function saveOrder(mode){
+  mode = mode || "save";
   const items=readItems(), name=$("custName").value.trim(), del=$("deliveryDate").value;
   const err=$("saveErr"); err.classList.add("hidden"); $("savedPanel").classList.add("hidden");
   if(!name||!del||!items.length){
@@ -407,12 +448,16 @@ async function saveOrder(){
   const adv=Number($("advance").value||0), c=calc(items,adv);
   if(!editingInv && adv>c.grand){ err.textContent="Advance cannot be more than the grand total."; err.classList.remove("hidden"); return; }
   if(editingInv && c.grand < adv - 0.01){ err.textContent="New total ("+inr(c.grand)+") cannot be less than amount already paid ("+inr(adv)+")."; err.classList.remove("hidden"); return; }
-  const btn=$("saveBtn"); btn.disabled=true; btn.innerHTML='<span class="spin"></span> Saving…';
+  const btns=["saveBtn","saveKotBtn","savePrintBtn"].map(i=>$(i));
+  btns.forEach(b=>b.disabled=true);
+  const btn=$(mode==="kot"?"saveKotBtn":mode==="print"?"savePrintBtn":"saveBtn");
+  const btnOld=btn.innerHTML; btn.innerHTML='<span class="spin"></span> Saving…';
   const payload={action: editingInv?"updateOrder":"createOrder", invoiceNo: editingInv||undefined,
     orderDate:$("orderDate").value||today(), deliveryDate:del,
     customerName:name, customerPhone:$("custPhone").value.trim(), customerAddress:$("custAddr").value.trim(), customerGSTIN:$("custGSTIN").value.trim().toUpperCase(),
     items, total:c.grand, advance:adv, paymentMode:$("payMode").value, taxMode:c.mode,
-    discType:c.disc.type, discValue:c.disc.value, discAmt:c.disc.amt};
+    discType:c.disc.type, discValue:c.disc.value, discAmt:c.disc.amt,
+    deliveryTime:getDeliveryTime(), orderNote:$("orderNote").value.trim()};
   try{
     const res=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify(payload)});
     const raw=await res.text();
@@ -424,13 +469,19 @@ async function saveOrder(){
     lastSaved={invoiceNo:invNo, payload, calc:c};
     $("savedInv").textContent=invNo+(editingInv?" updated for ":" saved for ")+payload.customerName;
     $("savedPanel").classList.remove("hidden");
-    makePDF(invNo, payload, c);
+    const kotData={invoiceNo:invNo, customerName:payload.customerName, customerPhone:payload.customerPhone,
+      deliveryDate:payload.deliveryDate, deliveryTime:payload.deliveryTime, items:payload.items,
+      orderNote:payload.orderNote, orderDate:payload.orderDate};
+    lastSaved.kot=kotData;
+    if(mode==="print"){ makePDF(invNo, payload, c, "print"); }
+    else { makePDF(invNo, payload, c); }
+    if(mode==="kot"){ printKOT(kotData, editingInv?"REVISED":""); }
     toast(editingInv?("Updated "+invNo):("Saved as "+invNo));
     cancelEdit();
     loadOrders();
   }catch(e){
     err.textContent="Could not save: "+e.message+". Check internet / SCRIPT_URL."; err.classList.remove("hidden");
-  }finally{ btn.disabled=false; btn.textContent="Save order & generate invoice"; }
+  }finally{ btns.forEach(b=>b.disabled=false); btn.innerHTML=btnOld; }
 }
 
 /* ---------------- PDF invoice ---------------- */
@@ -448,7 +499,7 @@ function amountInWords(n){
   if(n) s+=three(n);
   return s.trim();
 }
-function makePDF(invNo, p, c){
+function makePDF(invNo, p, c, out){
   const {jsPDF}=window.jspdf; const d=new jsPDF({unit:"mm",format:"a4"});
   const W=210, M=16; let y=18;
   const GREEN=[30,107,78], GREY=[130,130,130], DARK=[40,40,40];
@@ -594,7 +645,8 @@ function makePDF(invNo, p, c){
 
   d.setFont("helvetica","italic").setFontSize(8.5).setTextColor(120);
   d.text("This is a computer-generated invoice and does not require a signature.", M, 285);
-  d.save(invNo+".pdf");
+  if(out==="print"){ d.autoPrint(); window.open(d.output("bloburl"), "_blank"); }
+  else d.save(invNo+".pdf");
 }
 function fmtSlash(s){ const d=new Date(s); return isNaN(d)?s:String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear(); }
 
@@ -656,6 +708,7 @@ function cardHTML(o){
     </div>
     <div class="acts">
       ${(o.Delivered!=="YES"||ROLE==="owner")?`<button onclick="startEdit('${o.InvoiceNo}')">✏️ Edit</button>`:""}
+      <button onclick="kotFromOrder('${o.InvoiceNo}','DUPLICATE')">🍳 KOT</button>
       <button style="border-color:#25D366;color:#128C4A" onclick="waShare('${o.InvoiceNo}')">🟢 WhatsApp</button>
     </div>
   </div>`;
@@ -715,14 +768,35 @@ async function wipeAll(){
 
 /* ---------------- whatsapp share ---------------- */
 function waShare(inv, saved){
-  let o=orders.find(x=>x.InvoiceNo===inv), name, phone, total, paid, bal, del;
-  if(o){ name=o.CustomerName; phone=String(o.CustomerPhone||""); total=o.Total; paid=o.TotalPaid; bal=o.Balance; del=o.DeliveryDate; }
-  else if(saved){ const p=saved.payload; name=p.customerName; phone=String(p.customerPhone||""); total=saved.calc.grand; paid=p.advance||0; bal=saved.calc.balance; del=p.deliveryDate; }
+  let o=orders.find(x=>x.InvoiceNo===inv), name, phone, total, paid, bal, del, dtime, items;
+  if(o){ name=o.CustomerName; phone=String(o.CustomerPhone||""); total=o.Total; paid=o.TotalPaid; bal=o.Balance; del=o.DeliveryDate; dtime=o.DeliveryTime; items=o.Items||[]; }
+  else if(saved){ const p=saved.payload; name=p.customerName; phone=String(p.customerPhone||""); total=saved.calc.grand; paid=p.advance||0; bal=saved.calc.balance; del=p.deliveryDate; dtime=p.deliveryTime; items=p.items||[]; }
   else return;
   phone=phone.replace(/\D/g,""); if(phone.length===10) phone="91"+phone;
-  const msg=`Namaste ${name} 🙏\n\nThank you for your order at *Lijjat Khaman House*!\n\nInvoice: ${inv}\nTotal: Rs. ${Number(total).toFixed(2)}\nPaid: Rs. ${Number(paid).toFixed(2)}\nBalance: Rs. ${Number(bal).toFixed(2)}\nDelivery: ${fmtD(del)}\n\nInvoice PDF attached. You can pay the balance via UPI: ${UPI_ID}\n\nPh: ${CO.phone}`;
-  if(o) reInvoice(inv); // download PDF so cashier can attach it
-  toast("Invoice downloaded — attach it with 📎 in WhatsApp");
+  const itemLines=items.map(it=>`•  ${it.name} × ${it.qty%1?it.qty.toFixed(2):it.qty}`).join("\n");
+  const rs=n=>"Rs. "+Number(n).toLocaleString("en-IN",{maximumFractionDigits:2});
+  const msg=
+`🙏 *Namaste ${name}!*
+Thank you for your order with *Lijjat Khaman House* 💚
+
+🧾 *Invoice:* ${inv}
+📅 *Delivery:* ${fmtD(del)}${dtime?", "+fmtTime12(dtime):""}
+
+🛒 *Your Order*
+${itemLines}
+
+━━━━━━━━━━━━
+💰 Total: *${rs(total)}*
+✅ Paid: ${rs(paid)}${Number(bal)>0?`
+⏳ Balance: *${rs(bal)}*
+
+📲 Pay via UPI: ${UPI_ID}`:`
+🎉 Fully paid — thank you!`}
+━━━━━━━━━━━━
+
+📍 Lijjat Khaman House, Navrangpura, Ahmedabad
+📞 ${CO.phone}`;
+  if(o) reInvoice(inv);
   setTimeout(()=>{ window.open("https://wa.me/"+(phone||"")+"?text="+encodeURIComponent(msg), "_blank"); }, 600);
 }
 
@@ -737,22 +811,24 @@ function startEdit(inv){
   $("custName").value=o.CustomerName; $("custPhone").value=o.CustomerPhone||"";
   $("custAddr").value=o.CustomerAddress||""; $("custGSTIN").value=o.CustomerGSTIN||"";
   $("discType").value=o.DiscType||"amt"; $("discVal").value=Number(o.DiscValue||0);
+  setDeliveryTime(o.DeliveryTime||""); $("orderNote").value=o.OrderNote||"";
   // rebuild item rows
-  document.querySelectorAll(".itemRow").forEach(r=>r.remove());
+  document.querySelectorAll(".itemWrap").forEach(r=>r.remove());
   (o.Items||[]).forEach(it=>{
     addItemRow();
-    const rows=document.querySelectorAll(".itemRow"); const r=rows[rows.length-1];
-    const sel=r.children[0];
+    const wraps=document.querySelectorAll(".itemWrap"); const w=wraps[wraps.length-1];
+    const r=w.querySelector(".itemRow"); const sel=r.children[0];
     const opt=[...sel.options].find(op=>op.value===it.name);
     if(opt){ sel.value=it.name; }
     else { const inp=document.createElement("input"); inp.value=it.name; inp.oninput=recalc; r.replaceChild(inp,sel); }
     r.children[1].value=it.qty; r.children[2].value=it.rate;
+    w.querySelector(".itemNote").value=it.note||"";
   });
   // advance is managed via payments — lock it during edit
   $("advance").value=Number(o.TotalPaid||0); $("advance").disabled=true;
   $("editBanner").classList.remove("hidden");
   $("editBanner").textContent="✏️ Editing "+inv+" — payments stay as recorded ("+inr(o.TotalPaid)+" paid)";
-  $("saveBtn").textContent="Update order & regenerate invoice";
+  $("saveBtn").textContent="💾 Update Invoice";
   $("savedPanel").classList.add("hidden");
   recalc();
   window.scrollTo({top:0,behavior:"smooth"});
@@ -760,10 +836,67 @@ function startEdit(inv){
 function cancelEdit(){
   editingInv=null; $("advance").disabled=false; $("advance").value=0;
   $("editBanner").classList.add("hidden");
-  $("saveBtn").textContent="Save order & generate invoice";
-  document.querySelectorAll(".itemRow").forEach(r=>r.remove()); addItemRow();
-  ["custName","custPhone","custAddr","custGSTIN"].forEach(i=>$(i).value="");
+  $("saveBtn").innerHTML="💾 Save Invoice";
+  document.querySelectorAll(".itemWrap").forEach(r=>r.remove()); addItemRow();
+  ["custName","custPhone","custAddr","custGSTIN","orderNote"].forEach(i=>$(i).value="");
+  setDeliveryTime("");
   $("deliveryDate").value=""; $("discVal").value=0; $("discType").value="amt"; recalc();
+}
+
+/* ---------------- KOT ---------------- */
+function fmtTime12(t){
+  if(!t) return "";
+  const [hh,mm]=t.split(":").map(Number);
+  const ap=hh>=12?"PM":"AM"; const h12=hh%12||12;
+  return String(h12).padStart(2,"0")+":"+String(mm).padStart(2,"0")+" "+ap;
+}
+function printKOT(data, marker){
+  const itemRows=(data.items||[]).map(it=>
+    `<tr class="it"><td>[&nbsp;] ${it.name}</td><td class="r q">${it.qty%1?it.qty.toFixed(2):it.qty}</td></tr>`+
+    (it.note?`<tr><td colspan="2" class="nt">&gt;&gt; ${it.note}</td></tr>`:"")
+  ).join("");
+  const w=window.open("","_blank");
+  w.document.write(`<!DOCTYPE html><html><head><title>KOT ${data.invoiceNo}</title><style>
+    @page{size:80mm auto;margin:3mm}
+    body{width:72mm;margin:0;font-family:'Courier New',monospace;font-size:11px;color:#000}
+    h1{font-size:14px;text-align:center;margin:0}
+    .c{text-align:center;margin:1px 0}
+    hr{border:none;border-top:1px dashed #000;margin:5px 0}
+    table{width:100%;border-collapse:collapse}
+    td{padding:1px 0}
+    .r{text-align:right}
+    .it td{font-size:13px;font-weight:bold;padding-top:4px}
+    .q{font-size:15px}
+    .nt{font-size:10px;padding-left:14px}
+    .blk{background:#000;color:#fff;text-align:center;padding:5px 2px;margin:4px 0}
+    .blk div{font-size:15px;font-weight:bold;margin:2px 0}
+    .marker{border:2px solid #000;text-align:center;font-size:14px;font-weight:bold;padding:3px;margin:4px 0;letter-spacing:2px}
+  </style></head><body>
+    <h1>LIJJAT KHAMAN HOUSE</h1>
+    <div class="c">** KITCHEN ORDER TICKET **</div>
+    ${marker?`<div class="marker">*** ${marker} ***</div>`:""}
+    <hr>
+    <div><b>KOT: ${data.invoiceNo}</b></div>
+    <div>Customer: ${data.customerName}</div>
+    ${data.customerPhone?`<div>Ph: ${data.customerPhone}</div>`:""}
+    <div class="blk">
+      <div>DELIVERY: ${fmtD(data.deliveryDate)}</div>
+      ${data.deliveryTime?`<div>TIME: ${fmtTime12(data.deliveryTime)}</div>`:""}
+    </div>
+    <table><tr><td><b>ITEM</b></td><td class="r"><b>QTY</b></td></tr>${itemRows}</table>
+    <hr>
+    ${data.orderNote?`<div><b>ORDER NOTE:</b></div><div style="font-weight:bold;font-size:11.5px">${data.orderNote}</div><hr>`:""}
+    <div class="c">Taken: ${fmtD(data.orderDate)}${data.printedAt?"":""} | Printed: ${new Date().toLocaleString("en-IN",{hour:"2-digit",minute:"2-digit",day:"2-digit",month:"short"})}</div>
+    <div class="c">*** NO PRICES - KITCHEN COPY ***</div>
+    <script>window.onload=()=>{window.print();}<\/script>
+  </body></html>`);
+  w.document.close();
+}
+function kotFromOrder(inv, marker){
+  const o=orders.find(x=>x.InvoiceNo===inv); if(!o) return;
+  printKOT({invoiceNo:o.InvoiceNo, customerName:o.CustomerName, customerPhone:o.CustomerPhone,
+    deliveryDate:o.DeliveryDate, deliveryTime:o.DeliveryTime, items:o.Items, orderNote:o.OrderNote,
+    orderDate:o.OrderDate}, marker);
 }
 
 /* ---------------- reports ---------------- */
