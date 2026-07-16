@@ -774,7 +774,8 @@ function waShare(inv, saved){
   else if(saved){ const p=saved.payload; name=p.customerName; phone=String(p.customerPhone||""); total=saved.calc.grand; paid=p.advance||0; bal=saved.calc.balance; del=p.deliveryDate; dtime=p.deliveryTime; items=p.items||[]; }
   else return;
   phone=phone.replace(/\D/g,""); if(phone.length===10) phone="91"+phone;
-  const itemLines=items.map(it=>`- ${it.name} x ${it.qty%1?it.qty.toFixed(2):it.qty}${it.unit?" "+it.unit:""}`).join("\n");
+  const unitFor=it=>{ if(it.unit) return it.unit; const m=ITEMS.find(x=>x.name===it.name); return m?m.unit:""; };
+  const itemLines=items.map(it=>`- ${it.name} x ${it.qty%1?it.qty.toFixed(2):it.qty}${unitFor(it)?" "+unitFor(it):""}`).join("\n");
   const rs=n=>"Rs. "+Number(n).toLocaleString("en-IN",{maximumFractionDigits:2});
   const msg=
 `Namaste ${name},
@@ -854,8 +855,9 @@ function fmtTime12(t){
   return String(h12).padStart(2,"0")+":"+String(mm).padStart(2,"0")+" "+ap;
 }
 function printKOT(data, marker){
+  const unitFor=it=>{ if(it.unit) return it.unit; const m=ITEMS.find(x=>x.name===it.name); return m?m.unit:""; };
   const itemRows=(data.items||[]).map(it=>
-    `<tr class="it"><td>[&nbsp;&nbsp;] ${it.name}</td><td class="r q">${it.qty%1?it.qty.toFixed(2):it.qty}${it.unit?" "+it.unit:""}</td></tr>`+
+    `<tr class="it"><td>[&nbsp;&nbsp;] ${it.name}</td><td class="r q">${it.qty%1?it.qty.toFixed(2):it.qty}${unitFor(it)?" "+unitFor(it):""}</td></tr>`+
     (it.note?`<tr><td colspan="2" class="nt">&raquo; ${it.note}</td></tr>`:"")
   ).join("");
   const w=window.open("","_blank");
