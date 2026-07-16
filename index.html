@@ -114,19 +114,19 @@ const USERS = [
 
 /* Preset item list — edit rates/names anytime. Cashier can also type a custom item. */
 const ITEMS = [
-  {name:"Customised Food Packets", rate:0},
-  {name:"Khaman", rate:340},
-  {name:"Sev Khamani", rate:380},
-  {name:"Idada", rate:340},
-  {name:"Khandvi", rate:340},
-  {name:"Patra", rate:380},
-  {name:"Fulwadi", rate:480},
-  {name:"Pure Ghee Jalebi", rate:800},
-  {name:"Chinese Samosa", rate:15},
-  {name:"Navtad Samosa", rate:8.33},
-  {name:"Cheese Corn Roll", rate:21.67},
-  {name:"Mini Punjabi Samosa", rate:10},
-  {name:"Makai Bhakharwadi", rate:400},
+  {name:"Customised Food Packets", rate:0,    unit:"pkt"},
+  {name:"Khaman", rate:340,                   unit:"kg"},
+  {name:"Sev Khamani", rate:380,              unit:"kg"},
+  {name:"Idada", rate:340,                    unit:"kg"},
+  {name:"Khandvi", rate:340,                  unit:"kg"},
+  {name:"Patra", rate:380,                    unit:"kg"},
+  {name:"Fulwadi", rate:480,                  unit:"kg"},
+  {name:"Pure Ghee Jalebi", rate:800,         unit:"kg"},
+  {name:"Chinese Samosa", rate:15,            unit:"pcs"},
+  {name:"Navtad Samosa", rate:8.33,           unit:"pcs"},
+  {name:"Cheese Corn Roll", rate:21.67,       unit:"pcs"},
+  {name:"Mini Punjabi Samosa", rate:10,       unit:"pcs"},
+  {name:"Makai Bhakharwadi", rate:400,        unit:"kg"},
 ];
 
 /* Company details (from your invoice format) */
@@ -393,7 +393,8 @@ function readItems(){
     const name = nameEl.tagName==="SELECT" ? nameEl.value : nameEl.value.trim();
     const qty=Number(r.children[1].value), rate=Number(r.children[2].value);
     const note=w.querySelector(".itemNote").value.trim();
-    if(name && name!=="__other" && qty>0 && rate>0) items.push({name, qty, rate, amount:+(qty*rate).toFixed(2), note});
+    const master=ITEMS.find(x=>x.name===name);
+    if(name && name!=="__other" && qty>0 && rate>0) items.push({name, qty, rate, amount:+(qty*rate).toFixed(2), note, unit:master?master.unit:""});
   });
   return items;
 }
@@ -773,7 +774,7 @@ function waShare(inv, saved){
   else if(saved){ const p=saved.payload; name=p.customerName; phone=String(p.customerPhone||""); total=saved.calc.grand; paid=p.advance||0; bal=saved.calc.balance; del=p.deliveryDate; dtime=p.deliveryTime; items=p.items||[]; }
   else return;
   phone=phone.replace(/\D/g,""); if(phone.length===10) phone="91"+phone;
-  const itemLines=items.map(it=>`- ${it.name} x ${it.qty%1?it.qty.toFixed(2):it.qty}`).join("\n");
+  const itemLines=items.map(it=>`- ${it.name} x ${it.qty%1?it.qty.toFixed(2):it.qty}${it.unit?" "+it.unit:""}`).join("\n");
   const rs=n=>"Rs. "+Number(n).toLocaleString("en-IN",{maximumFractionDigits:2});
   const msg=
 `Namaste ${name},
@@ -854,7 +855,7 @@ function fmtTime12(t){
 }
 function printKOT(data, marker){
   const itemRows=(data.items||[]).map(it=>
-    `<tr class="it"><td>[&nbsp;&nbsp;] ${it.name}</td><td class="r q">${it.qty%1?it.qty.toFixed(2):it.qty}</td></tr>`+
+    `<tr class="it"><td>[&nbsp;&nbsp;] ${it.name}</td><td class="r q">${it.qty%1?it.qty.toFixed(2):it.qty}${it.unit?" "+it.unit:""}</td></tr>`+
     (it.note?`<tr><td colspan="2" class="nt">&raquo; ${it.note}</td></tr>`:"")
   ).join("");
   const w=window.open("","_blank");
@@ -936,8 +937,9 @@ function printThermal(){
   const dueTomorrow=tomorrowOrders.length;
   const prep={};
   tomorrowOrders.forEach(o=>(o.Items||[]).forEach(it=>{ prep[it.name]=(prep[it.name]||0)+Number(it.qty); }));
+  const unitOf=n=>{ const m=ITEMS.find(x=>x.name===n); return m?" "+m.unit:""; };
   const prepRows=Object.entries(prep).sort((a,b)=>b[1]-a[1]).map(([n,q])=>
-    `<tr><td>${n.slice(0,24)}</td><td class="r"><b>${q%1?q.toFixed(2):q}</b></td></tr>`).join("");
+    `<tr><td>${n.slice(0,22)}</td><td class="r"><b>${q%1?q.toFixed(2):q}${unitOf(n)}</b></td></tr>`).join("");
   const outstanding=orders.reduce((s,o)=>s+Math.max(Number(o.Balance),0),0);
   const modeRows=Object.entries(modes).map(([m,v])=>
     `<tr><td>&nbsp;&nbsp;${m}</td><td class="r">Rs. ${v.toFixed(2)}</td></tr>`).join("");
