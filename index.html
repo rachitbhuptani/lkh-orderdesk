@@ -843,6 +843,7 @@ function cancelEdit(){
   $("saveBtn").innerHTML="💾 Save Invoice";
   document.querySelectorAll(".itemWrap").forEach(r=>r.remove()); addItemRow();
   ["custName","custPhone","custAddr","custGSTIN","orderNote"].forEach(i=>$(i).value="");
+  $("orderDate").value=today();
   setDeliveryTime("");
   $("deliveryDate").value=""; $("discVal").value=0; $("discType").value="amt"; recalc();
 }
@@ -856,31 +857,38 @@ function fmtTime12(t){
 }
 function printKOT(data, marker){
   const unitFor=it=>{ if(it.unit) return it.unit; const m=ITEMS.find(x=>x.name===it.name); return m?m.unit:""; };
-  const itemRows=(data.items||[]).map(it=>
-    `<tr class="it"><td>[&nbsp;&nbsp;] ${it.name}</td><td class="r q">${it.qty%1?it.qty.toFixed(2):it.qty}${unitFor(it)?" "+unitFor(it):""}</td></tr>`+
-    (it.note?`<tr><td colspan="2" class="nt">&raquo; ${it.note}</td></tr>`:"")
-  ).join("");
+  const itemRows=(data.items||[]).map((it,i)=>{
+    const q=(it.qty%1?it.qty.toFixed(2):it.qty)+(unitFor(it)?" "+unitFor(it):"");
+    return `<div class="item">
+      <div class="iname">${i+1}. ${it.name}</div>
+      <div class="qline"><span class="qty">QTY:&nbsp;&nbsp;${String(q).toUpperCase()}</span><span class="tick"></span></div>
+      ${it.note?`<div class="inote">&gt;&gt; ${it.note}</div>`:""}
+    </div>`;
+  }).join("");
   const w=window.open("","_blank");
   w.document.write(`<!DOCTYPE html><html><head><title>KOT ${data.invoiceNo}</title><style>
     @page{size:80mm auto;margin:2.5mm}
-    body{width:73mm;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#000;font-weight:bold}
-    h1{font-size:17px;text-align:center;margin:0 0 2px}
+    body{width:73mm;margin:0;font-family:Arial,Helvetica,sans-serif;color:#000}
+    h1{font-size:17px;text-align:center;margin:0;font-weight:bold}
     .c{text-align:center;margin:1px 0}
-    .sub{font-size:12px;font-weight:normal}
+    .sub{font-size:11px}
     hr{border:none;border-top:2px dashed #000;margin:6px 0}
-    table{width:100%;border-collapse:collapse}
-    td{padding:2px 0;vertical-align:top}
-    .r{text-align:right}
-    .kv{font-size:14px}
-    .it td{font-size:17px;padding-top:7px;line-height:1.15}
-    .q{font-size:20px;white-space:nowrap;padding-left:6px}
-    .nt{font-size:13px;font-weight:normal;padding-left:20px;padding-top:0}
-    .delbox{border:3px solid #000;text-align:center;padding:7px 3px;margin:7px 0}
-    .delbox .lbl{font-size:12px;letter-spacing:1px}
-    .delbox .val{font-size:21px;line-height:1.25}
-    .marker{border:3px double #000;text-align:center;font-size:17px;padding:4px;margin:5px 0;letter-spacing:3px}
-    .note{border:2px solid #000;padding:5px;margin:4px 0;font-size:15px}
-    .note .lbl{font-size:11px;letter-spacing:1px}
+    .kv{font-size:14px;font-weight:bold;margin:1px 0}
+    .delbox{border:3px solid #000;text-align:center;padding:6px 3px;margin:7px 0}
+    .delbox .lbl{font-size:11px;letter-spacing:1px}
+    .delbox .val{font-size:20px;font-weight:bold;line-height:1.25}
+    .marker{border:3px double #000;text-align:center;font-size:17px;font-weight:bold;padding:4px;margin:5px 0;letter-spacing:3px}
+    .item{border-bottom:3px solid #000;padding:7px 0 8px}
+    .item:last-of-type{border-bottom:none}
+    .iname{font-size:22px;font-weight:bold;line-height:1.15}
+    .qline{display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding-left:12px;padding-right:2px}
+    .qty{font-size:18px;font-weight:bold}
+    .tick{display:inline-block;width:18px;height:18px;border:2px solid #000}
+    .inote{font-family:'Courier New',monospace;font-style:italic;font-weight:bold;font-size:16px;margin-top:4px;padding-left:12px;line-height:1.25}
+    .notebox{border:2px solid #000;padding:6px;margin:5px 0}
+    .notebox .lbl{font-size:10px;letter-spacing:1px;font-family:Arial}
+    .notebox .txt{font-family:'Courier New',monospace;font-style:italic;font-weight:bold;font-size:15px;line-height:1.3}
+    .items{border-top:3px solid #000;margin-top:4px}
   </style></head><body>
     <h1>LIJJAT KHAMAN HOUSE</h1>
     <div class="c sub">KITCHEN ORDER TICKET</div>
@@ -894,11 +902,10 @@ function printKOT(data, marker){
       <div class="val">${fmtD(data.deliveryDate)}</div>
       ${data.deliveryTime?`<div class="val">${fmtTime12(data.deliveryTime)}</div>`:""}
     </div>
-    <table><tr><td style="font-size:13px">ITEM</td><td class="r" style="font-size:13px">QTY</td></tr>${itemRows}</table>
+    <div class="items">${itemRows}</div>
+    ${data.orderNote?`<hr><div class="notebox"><div class="lbl">ORDER NOTE</div><div class="txt">${data.orderNote}</div></div>`:""}
     <hr>
-    ${data.orderNote?`<div class="note"><div class="lbl">ORDER NOTE</div>${data.orderNote}</div><hr>`:""}
     <div class="c sub">Taken: ${fmtD(data.orderDate)} | Printed: ${new Date().toLocaleString("en-IN",{hour:"2-digit",minute:"2-digit",day:"2-digit",month:"short"})}</div>
-    <div class="c sub">NO PRICES - KITCHEN COPY</div>
     <script>window.onload=()=>{window.print();}<\/script>
   </body></html>`);
   w.document.close();
@@ -949,51 +956,50 @@ function printThermal(){
     `<tr><td>${o.InvoiceNo.replace("INV-0000","#")}</td><td>${String(o.CustomerName).slice(0,12)}</td><td class="r">${Number(o.Total).toFixed(0)}</td><td class="r">${Number(o.Balance)>0?Number(o.Balance).toFixed(0):"paid"}</td></tr>`).join("");
   const w=window.open("","_blank");
   w.document.write(`<!DOCTYPE html><html><head><title>Summary ${dt}</title><style>
-    @page{size:80mm auto;margin:3mm}
-    body{width:72mm;margin:0;font-family:'Courier New',monospace;font-size:11px;color:#000}
-    h1{font-size:14px;text-align:center;margin:0}
+    @page{size:80mm auto;margin:2.5mm}
+    body{width:73mm;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#000}
+    h1{font-size:15px;text-align:center;margin:0;font-weight:bold}
     .c{text-align:center;margin:1px 0}
-    hr{border:none;border-top:1px dashed #000;margin:5px 0}
-    table{width:100%;border-collapse:collapse;font-size:11px}
-    td{padding:1px 0}
+    hr{border:none;border-top:2px dashed #000;margin:5px 0}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    td{padding:1.5px 0}
     .r{text-align:right}
-    .big{font-size:13px;font-weight:bold}
-    .sec{font-weight:bold;margin:4px 0 1px}
+    b{font-weight:bold}
+    .hero{border:3px solid #000;text-align:center;padding:6px 2px;margin:5px 0}
+    .hero .lbl{font-size:11px;letter-spacing:1px}
+    .hero .val{font-size:22px;font-weight:bold;line-height:1.2}
+    .sec{font-weight:bold;margin:4px 0 1px;font-size:12px}
   </style></head><body>
     <h1>LIJJAT KHAMAN HOUSE</h1>
-    <div class="c">Navrangpura, Ahmedabad</div>
     <div class="c">Ph: ${CO.phone}</div>
+    <div class="c"><b>DAILY SUMMARY — ${fmtD(dt)}</b></div>
     <hr>
-    <div class="c big">DAILY SUMMARY</div>
-    <div class="c">${fmtD(dt)}</div>
+    <div class="hero">
+      <div class="lbl">CASH / PAYMENTS RECEIVED TODAY</div>
+      <div class="val">Rs. ${payTotal.toFixed(2)}</div>
+    </div>
+    <table>${Object.entries(modes).map(([m,v])=>`<tr><td>&nbsp;&nbsp;${m}</td><td class="r"><b>Rs. ${v.toFixed(2)}</b></td></tr>`).join("")}
+    <tr><td>&nbsp;&nbsp;No. of payments</td><td class="r">${payN}</td></tr></table>
+    <div class="hero">
+      <div class="lbl">ORDER VALUE TODAY (${dayOrders.length} orders)</div>
+      <div class="val">Rs. ${val.toFixed(2)}</div>
+    </div>
     <hr>
-    <div class="sec">ORDERS TODAY</div>
+    <div class="sec">DELIVERIES TODAY</div>
     <table>
-      <tr><td>Orders Taken</td><td class="r big">${dayOrders.length}</td></tr>
-      <tr><td>Order Value</td><td class="r big">Rs. ${val.toFixed(2)}</td></tr>
-      <tr><td>Pending (today's orders)</td><td class="r">Rs. ${pendToday.toFixed(2)}</td></tr>
-    </table>
-    <hr>
-    <div class="sec">COLLECTIONS TODAY</div>
-    <table>
-      <tr><td>Received (${payN} payments)</td><td class="r big">Rs. ${payTotal.toFixed(2)}</td></tr>
-      ${modeRows}
-    </table>
-    <hr>
-    <div class="sec">DELIVERIES</div>
-    <table>
-      <tr><td>Due Today</td><td class="r">${dueToday.length}</td></tr>
-      <tr><td>Completed</td><td class="r">${doneToday}</td></tr>
-      <tr><td>Still Pending</td><td class="r big">${dueToday.length-doneToday}</td></tr>
+      <tr><td>Delivered</td><td class="r"><b>${doneToday} of ${dueToday.length}</b></td></tr>
+      <tr><td>Still Pending</td><td class="r"><b>${dueToday.length-doneToday}</b></td></tr>
       <tr><td>Due Tomorrow</td><td class="r">${dueTomorrow}</td></tr>
+    </table>
+    <hr>
+    <table>
+      <tr><td>Pending (today's orders)</td><td class="r">Rs. ${pendToday.toFixed(2)}</td></tr>
+      <tr><td><b>TOTAL OUTSTANDING</b></td><td class="r"><b>Rs. ${outstanding.toFixed(2)}</b></td></tr>
     </table>
     <hr>
     ${prepRows?`<div class="sec">PREP FOR TOMORROW (${fmtD(nextDay)})</div>
     <table><tr><td><b>Item</b></td><td class="r"><b>Qty</b></td></tr>${prepRows}</table>
     <hr>`:""}
-    <table><tr><td class="big">TOTAL OUTSTANDING</td><td class="r big">Rs. ${outstanding.toFixed(2)}</td></tr></table>
-    <div class="c" style="font-size:9px">(balance pending across all orders)</div>
-    <hr>
     ${dayOrders.length?`<div class="sec">TODAY'S ORDERS</div><table><tr><td><b>Inv</b></td><td><b>Customer</b></td><td class="r"><b>Total</b></td><td class="r"><b>Bal</b></td></tr>${rows}</table><hr>`:""}
     <div class="c">Printed ${new Date().toLocaleString("en-IN")}</div>
     <script>window.onload=()=>{window.print();}<\/script>
