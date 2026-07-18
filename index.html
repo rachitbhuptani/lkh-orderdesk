@@ -646,6 +646,7 @@ function makePDF(invNo, p, c, out){
 
   d.setFont("helvetica","italic").setFontSize(8.5).setTextColor(120);
   d.text("This is a computer-generated invoice and does not require a signature.", M, 285);
+  if(out==="upload") return d.output("datauristring").split(",")[1];
   if(out==="print"){ d.autoPrint(); window.open(d.output("bloburl"), "_blank"); }
   else d.save(invNo+".pdf");
 }
@@ -769,18 +770,12 @@ async function wipeAll(){
 
 /* ---------------- whatsapp share ---------------- */
 async function uploadInvoicePdf(invNo, payload, calc){
-  // build PDF in-memory (not downloaded) and send as base64
-  const {jsPDF}=window.jspdf;
-  const oldSave=jsPDF.API.save;
-  let dataUri=null;
-  jsPDF.API.save = function(){ dataUri = this.output("datauristring"); };
-  try { makePDF(invNo, payload, calc); } finally { jsPDF.API.save = oldSave; }
-  if(!dataUri) throw new Error("PDF build failed");
-  const b64 = dataUri.split(",")[1];
+  const b64 = makePDF(invNo, payload, calc, "upload");
+  if(!b64) throw new Error("PDF build failed");
   const res = await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},
     body:JSON.stringify({action:"uploadInvoice", invoiceNo:invNo, pdfBase64:b64})});
   const data = await res.json();
-  if(!data.ok) throw new Error(data.error||"Upload failed");
+  if(!data.ok) throw new Error(data.error==="Unknown action"?"Deploy the new Code.gs (Manage deployments > New version) — it doesn't have the upload feature yet.":(data.error||"Upload failed"));
   return data.url;
 }
 
