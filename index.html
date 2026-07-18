@@ -768,15 +768,52 @@ async function wipeAll(){
 }
 
 /* ---------------- whatsapp share ---------------- */
-function waShare(inv, saved){
-  let o=orders.find(x=>x.InvoiceNo===inv), name, phone, total, paid, bal, del, dtime, items;
-  if(o){ name=o.CustomerName; phone=String(o.CustomerPhone||""); total=o.Total; paid=o.TotalPaid; bal=o.Balance; del=o.DeliveryDate; dtime=o.DeliveryTime; items=o.Items||[]; }
-  else if(saved){ const p=saved.payload; name=p.customerName; phone=String(p.customerPhone||""); total=saved.calc.grand; paid=p.advance||0; bal=saved.calc.balance; del=p.deliveryDate; dtime=p.deliveryTime; items=p.items||[]; }
-  else return;
+async function uploadInvoicePdf(invNo, payload, calc){
+  // build PDF in-memory (not downloaded) and send as base64
+  const {jsPDF}=window.jspdf;
+  const oldSave=jsPDF.API.save;
+  let dataUri=null;
+  jsPDF.API.save = function(){ dataUri = this.output("datauristring"); };
+  try { makePDF(invNo, payload, calc); } finally { jsPDF.API.save = oldSave; }
+  if(!dataUri) throw new Error("PDF build failed");
+  const b64 = dataUri.split(",")[1];
+  const res = await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},
+    body:JSON.stringify({action:"uploadInvoice", invoiceNo:invNo, pdfBase64:b64})});
+  const data = await res.json();
+  if(!data.ok) throw new Error(data.error||"Upload failed");
+  return data.url;
+}
+
+async function waShare(inv, saved){
+  let o=orders.find(x=>x.InvoiceNo===inv), name, phone, total, paid, bal, del, dtime, items, payload, calc;
+  if(o){
+    name=o.CustomerName; phone=String(o.CustomerPhone||"");
+    total=o.Total; paid=o.TotalPaid; bal=o.Balance; del=o.DeliveryDate; dtime=o.DeliveryTime; items=o.Items||[];
+    // rebuild payload/calc so PDF can be regenerated for upload
+    const gross=items.reduce((s,i)=>s+Number(i.amount),0);
+    const netTaxable=(Number(o.Total)-Number(o.DiscAmt||0))/1.05;
+    calc={taxable:+netTaxable.toFixed(2), tax:+(Number(o.Total)-Number(o.DiscAmt||0)-netTaxable).toFixed(2),
+      roundOff:0, grand:Number(o.Total), balance:Number(o.Balance), mode:"intra"};
+    payload={orderDate:o.OrderDate, deliveryDate:o.DeliveryDate, customerName:o.CustomerName,
+      customerPhone:o.CustomerPhone, customerAddress:o.CustomerAddress, customerGSTIN:o.CustomerGSTIN,
+      items, advance:o.TotalPaid, discType:o.DiscType, discValue:o.DiscValue, discAmt:o.DiscAmt};
+  }
+  else if(saved){
+    const p=saved.payload; name=p.customerName; phone=String(p.customerPhone||"");
+    total=saved.calc.grand; paid=p.advance||0; bal=saved.calc.balance; del=p.deliveryDate; dtime=p.deliveryTime; items=p.items||[];
+    payload=p; calc=saved.calc;
+  } else return;
   phone=phone.replace(/\D/g,""); if(phone.length===10) phone="91"+phone;
+
   const unitFor=it=>{ if(it.unit) return it.unit; const m=ITEMS.find(x=>x.name===it.name); return m?m.unit:""; };
   const itemLines=items.map(it=>`- ${it.name} x ${it.qty%1?it.qty.toFixed(2):it.qty}${unitFor(it)?" "+unitFor(it):""}`).join("\n");
   const rs=n=>"Rs. "+Number(n).toLocaleString("en-IN",{maximumFractionDigits:2});
+
+  toast("Uploading invoice…");
+  let link="";
+  try{ link = await uploadInvoicePdf(inv, payload, calc); }
+  catch(e){ toast("Upload failed — sharing without link"); if(o) reInvoice(inv); }
+
   const msg=
 `Namaste ${name},
 
@@ -796,12 +833,12 @@ Balance: *${rs(bal)}*
 Pay via UPI: ${UPI_ID}`:`
 Fully paid - thank you!`}
 ----------------------------
-
+${link?`\nView your invoice: ${link}\n`:""}
 Lijjat Khaman House
 Navrangpura, Ahmedabad
 Ph: ${CO.phone}`;
-  if(o) reInvoice(inv);
-  setTimeout(()=>{ window.open("https://wa.me/"+(phone||"")+"?text="+encodeURIComponent(msg), "_blank"); }, 600);
+
+  window.open("https://wa.me/"+(phone||"")+"?text="+encodeURIComponent(msg), "_blank");
 }
 
 /* ---------------- edit order ---------------- */
@@ -815,7 +852,7 @@ function startEdit(inv){
   $("custName").value=o.CustomerName; $("custPhone").value=o.CustomerPhone||"";
   $("custAddr").value=o.CustomerAddress||""; $("custGSTIN").value=o.CustomerGSTIN||"";
   $("discType").value=o.DiscType||"amt"; $("discVal").value=Number(o.DiscValue||0);
-  setDeliveryTime(o.DeliveryTime||""); $("orderNote").value=o.OrderNote||"";
+  setDeliveryTime(/^\d{1,2}:\d{2}/.test(String(o.DeliveryTime||""))?o.DeliveryTime:""); $("orderNote").value=o.OrderNote||"";
   // rebuild item rows
   document.querySelectorAll(".itemWrap").forEach(r=>r.remove());
   (o.Items||[]).forEach(it=>{
@@ -850,7 +887,7 @@ function cancelEdit(){
 
 /* ---------------- KOT ---------------- */
 function fmtTime12(t){
-  if(!t) return "";
+  if(!t || !/^\d{1,2}:\d{2}/.test(String(t))) return "";
   const [hh,mm]=t.split(":").map(Number);
   const ap=hh>=12?"PM":"AM"; const h12=hh%12||12;
   return String(h12).padStart(2,"0")+":"+String(mm).padStart(2,"0")+" "+ap;
